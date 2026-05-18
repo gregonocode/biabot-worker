@@ -2,6 +2,9 @@
   "name": "biabot-worker",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
@@ -10,11 +13,11 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "tsx": "^4.19.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.1",
-    "tsx": "^4.19.3",
     "typescript": "^5.8.3"
   }
 }
