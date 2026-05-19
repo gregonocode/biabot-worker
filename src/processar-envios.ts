@@ -1,5 +1,19 @@
 import { supabase } from './supabase';
-import { evolutionFetch } from './evolution';
+import {
+  sendAudioMessage,
+  sendMediaMessage,
+  sendTextMessage,
+} from './evolution';
+
+type TipoConteudo =
+  | 'texto'
+  | 'imagem'
+  | 'imagem_texto'
+  | 'audio'
+  | 'audio_texto'
+  | 'video'
+  | 'video_texto'
+  | 'documento';
 
 type Agendamento = {
   id: string;
@@ -8,9 +22,11 @@ type Agendamento = {
   midia_id: string | null;
   grupo_id: string;
   instancia_id: string | null;
-  tipo_conteudo: string | null;
+  tipo_conteudo: TipoConteudo | null;
   conteudo_url: string | null;
   texto: string | null;
+  nome_arquivo: string | null;
+  mime_type: string | null;
   tentativas: number | null;
   enviar_em: string;
   status: string;
@@ -76,6 +92,7 @@ async function marcarComoErro(agendamento: Agendamento, erro: string) {
       status: statusFinal,
       tentativas,
       ultimo_erro: erro,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', agendamento.id);
 
@@ -91,26 +108,6 @@ async function marcarComoErro(agendamento: Agendamento, erro: string) {
     status: 'erro',
     mensagem: erro,
     erro,
-  });
-}
-
-async function enviarTexto(
-  instancia: Instancia,
-  grupo: Grupo,
-  texto: string,
-) {
-  console.log('Enviando texto pela Evolution:', {
-    instanceName: instancia.instance_name,
-    groupJid: grupo.group_jid,
-    textoPreview: texto.slice(0, 40),
-  });
-
-  return evolutionFetch('/message/sendText/' + instancia.instance_name, {
-    method: 'POST',
-    body: {
-      number: grupo.group_jid,
-      text: texto,
-    },
   });
 }
 
@@ -188,6 +185,104 @@ async function tentarBloquearAgendamento(agendamentoId: string) {
   return true;
 }
 
+function assertTexto(texto: string | null | undefined) {
+  const value = texto?.trim();
+
+  if (!value) {
+    throw new Error('Conteúdo de texto vazio.');
+  }
+
+  return value;
+}
+
+function assertConteudoUrl(url: string | null | undefined) {
+  const value = url?.trim();
+
+  if (!value) {
+    throw new Error('Conteúdo com arquivo sem URL pública.');
+  }
+
+  return value;
+}
+
+async function processarConteudo(params: {
+  agendamento: Agendamento;
+  instancia: Instancia;
+  grupo: Grupo;
+}) {
+  const { agendamento, instancia, grupo } = params;
+
+  const tipo = agendamento.tipo_conteudo;
+
+  console.log('Processando conteúdo:', {
+    agendamentoId: agendamento.id,
+    tipo,
+    conteudoUrl: agendamento.conteudo_url,
+    mimeType: agendamento.mime_type,
+    nomeArquivo: agendamento.nome_arquivo,
+  });
+
+  if (tipo === 'texto') {
+    const texto = assertTexto(agendamento.texto);
+
+    return sendTextMessage({
+      instanceName: instancia.instance_name,
+      number: grupo.group_jid,
+      text: texto,
+    });
+  }
+
+  if (tipo === 'imagem' || tipo === 'imagem_texto') {
+    const media = assertConteudoUrl(agendamento.conteudo_url);
+    const caption =
+      tipo === 'imagem_texto' ? assertTexto(agendamento.texto) : null;
+
+    return sendMediaMessage({
+      instanceName: instancia.instance_name,
+      number: grupo.group_jid,
+      mediatype: 'image',
+      media,
+      mimetype: agendamento.mime_type ?? 'image/jpeg',
+      fileName: agendamento.nome_arquivo ?? 'imagem.jpg',
+      caption,
+    });
+  }
+
+  if (tipo === 'audio') {
+    const audio = assertConteudoUrl(agendamento.conteudo_url);
+
+    return sendAudioMessage({
+      instanceName: instancia.instance_name,
+      number: grupo.group_jid,
+      audio,
+    });
+  }
+
+  if (tipo === 'audio_texto') {
+    const audio = assertConteudoUrl(agendamento.conteudo_url);
+    const texto = assertTexto(agendamento.texto);
+
+    const audioResponse = await sendAudioMessage({
+      instanceName: instancia.instance_name,
+      number: grupo.group_jid,
+      audio,
+    });
+
+    const textResponse = await sendTextMessage({
+      instanceName: instancia.instance_name,
+      number: grupo.group_jid,
+      text: texto,
+    });
+
+    return {
+      audioResponse,
+      textResponse,
+    };
+  }
+
+  throw new Error(`Tipo de conteúdo ainda não suportado no worker: ${tipo}`);
+}
+
 export async function processarEnvios() {
   const agora = new Date().toISOString();
 
@@ -208,6 +303,8 @@ export async function processarEnvios() {
       tipo_conteudo,
       conteudo_url,
       texto,
+      nome_arquivo,
+      mime_type,
       tentativas,
       enviar_em,
       status
@@ -280,19 +377,11 @@ export async function processarEnvios() {
         );
       }
 
-      if (agendamento.tipo_conteudo !== 'texto') {
-        throw new Error(
-          `Tipo de conteúdo ainda não suportado no worker: ${agendamento.tipo_conteudo}`,
-        );
-      }
-
-      const texto = agendamento.texto?.trim();
-
-      if (!texto) {
-        throw new Error('Conteúdo de texto vazio.');
-      }
-
-      const evolutionResponse = await enviarTexto(instancia, grupo, texto);
+      const evolutionResponse = await processarConteudo({
+        agendamento,
+        instancia,
+        grupo,
+      });
 
       console.log('Resposta da Evolution recebida:', {
         agendamentoId: agendamento.id,
