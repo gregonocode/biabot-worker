@@ -51,8 +51,13 @@ async function criarLog(params: {
   erro?: string | null;
   evolutionResponse?: unknown;
 }) {
-  const { agendamento, status, mensagem, erro = null, evolutionResponse = null } =
-    params;
+  const {
+    agendamento,
+    status,
+    mensagem,
+    erro = null,
+    evolutionResponse = null,
+  } = params;
 
   const { error } = await supabase.from('envios_logs').insert({
     user_id: agendamento.user_id,
@@ -205,13 +210,24 @@ function assertConteudoUrl(url: string | null | undefined) {
   return value;
 }
 
+function getDefaultMimeType(tipo: TipoConteudo | null) {
+  if (tipo === 'imagem' || tipo === 'imagem_texto') {
+    return 'image/jpeg';
+  }
+
+  if (tipo === 'audio' || tipo === 'audio_texto') {
+    return 'audio/mpeg';
+  }
+
+  return 'application/octet-stream';
+}
+
 async function processarConteudo(params: {
   agendamento: Agendamento;
   instancia: Instancia;
   grupo: Grupo;
 }) {
   const { agendamento, instancia, grupo } = params;
-
   const tipo = agendamento.tipo_conteudo;
 
   console.log('Processando conteúdo:', {
@@ -242,7 +258,7 @@ async function processarConteudo(params: {
       number: grupo.group_jid,
       mediatype: 'image',
       media,
-      mimetype: agendamento.mime_type ?? 'image/jpeg',
+      mimetype: agendamento.mime_type ?? getDefaultMimeType(tipo),
       fileName: agendamento.nome_arquivo ?? 'imagem.jpg',
       caption,
     });
